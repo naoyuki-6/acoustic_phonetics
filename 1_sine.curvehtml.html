@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>正弦波の生成原理</title>
+<style>
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: #fafaf8;
+    color: #2a2a2a;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 8px 0 4px; }
+  .sub { font-size: 13px; color: #777; margin-bottom: 16px; }
+  #stage { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
+  .controls {
+    margin-top: 16px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .ctrl { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: #555; }
+  .ctrl input[type=range] { width: 140px; }
+  .val { font-size: 11px; color: #888; margin-top: 2px; }
+  button {
+    padding: 8px 18px; border: none; border-radius: 6px;
+    background: #d64545; color: #fff; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #b83838; }
+  button.sound { background: #3a8a5a; }
+  button.sound:hover { background: #2f7049; }
+  button.sound.off { background: #999; }
+  button.sound.off:hover { background: #888; }
+  .legend { margin-top: 14px; font-size: 13px; display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 14px; height: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+  <h1>正弦波の生成原理</h1>
+  <div class="sub">円運動（左）が波形（右）を生み出す ― 振幅・周期・位相</div>
+
+  <svg id="stage" viewBox="0 0 760 340" width="760" height="340">
+    <!-- baseline for circle -->
+    <line x1="30" y1="170" x2="230" y2="170" stroke="#ddd" stroke-width="1"/>
+    <!-- outer reference circle (max amplitude) -->
+    <circle cx="130" cy="170" r="100" fill="none" stroke="#eee" stroke-width="1" stroke-dasharray="3 3"/>
+    <!-- circle (radius follows amplitude) -->
+    <circle id="mainCircle" cx="130" cy="170" r="90" fill="none" stroke="#333" stroke-width="1.5"/>
+    <!-- amplitude marker on circle -->
+    <line id="ampLine" x1="130" y1="170" x2="220" y2="170" stroke="#e0a030" stroke-width="2"/>
+    <!-- radius vector -->
+    <line id="radius" x1="130" y1="170" x2="220" y2="170" stroke="#d64545" stroke-width="2.5"/>
+    <circle id="dot" cx="220" cy="170" r="6" fill="#d64545"/>
+    <text x="130" y="55" text-anchor="middle" font-size="12" fill="#777">円運動</text>
+
+    <!-- wave axis (time) -->
+    <line x1="250" y1="170" x2="740" y2="170" stroke="#bbb" stroke-width="1"/>
+    <text x="735" y="188" text-anchor="end" font-size="11" fill="#999">時間 →</text>
+    <!-- amplitude guide on wave -->
+    <line x1="250" y1="70" x2="740" y2="70" stroke="#eee" stroke-width="1" stroke-dasharray="3 3"/>
+    <line x1="250" y1="270" x2="740" y2="270" stroke="#eee" stroke-width="1" stroke-dasharray="3 3"/>
+
+    <!-- connector from dot to wave start -->
+    <line id="connector" x1="220" y1="170" x2="250" y2="170" stroke="#d64545" stroke-width="1" stroke-dasharray="4 3" opacity="0.6"/>
+
+    <!-- period markers (one full cycle) -->
+    <line id="periodStart" x1="250" y1="80" x2="250" y2="290" stroke="#2a6fb0" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+    <line id="periodEnd" x1="390" y1="80" x2="390" y2="290" stroke="#2a6fb0" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+    <line id="periodArrow" x1="250" y1="285" x2="390" y2="285" stroke="#2a6fb0" stroke-width="1.5" marker-start="url(#ahb)" marker-end="url(#ahb)"/>
+    <text id="periodLabel" x="320" y="305" text-anchor="middle" font-size="12" fill="#2a6fb0">周期 (T)</text>
+
+    <!-- wave path -->
+    <path id="wave" fill="none" stroke="#2a6fb0" stroke-width="2.5"/>
+    <circle id="waveDot" cx="250" cy="170" r="5" fill="#2a6fb0"/>
+
+    <!-- amplitude annotation (right side) -->
+    <line id="ampArrow" x1="700" y1="170" x2="700" y2="70" stroke="#e0a030" stroke-width="1.5" marker-end="url(#ah)"/>
+    <text x="712" y="125" font-size="12" fill="#c88a15">振幅 (A)</text>
+
+    <defs>
+      <marker id="ah" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#e0a030"/>
+      </marker>
+      <marker id="ahb" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+        <path d="M8,0 L0,4 L8,8 Z" fill="#2a6fb0"/>
+      </marker>
+    </defs>
+    <text x="490" y="55" text-anchor="middle" font-size="12" fill="#777">波形（変位 対 時間）</text>
+  </svg>
+
+  <div class="controls">
+    <button id="playBtn">停止</button>
+    <button id="soundBtn" class="sound off">🔇 音を鳴らす</button>
+    <div class="ctrl">
+      <label>振幅 A</label>
+      <input id="ampSlider" type="range" min="20" max="100" value="90">
+      <div class="val" id="ampVal"></div>
+    </div>
+    <div class="ctrl">
+      <label>周期 T</label>
+      <input id="periodSlider" type="range" min="60" max="240" value="140">
+      <div class="val" id="periodVal"></div>
+    </div>
+    <div class="ctrl">
+      <label>位相 φ</label>
+      <input id="phaseSlider" type="range" min="0" max="360" value="0">
+      <div class="val" id="phaseVal"></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:#d64545"></span>回転する半径ベクトル</span>
+    <span><span class="swatch" style="background:#2a6fb0"></span>正弦波</span>
+    <span><span class="swatch" style="background:#e0a030"></span>振幅</span>
+  </div>
+
+<script>
+const mainCircle = document.getElementById('mainCircle');
+const radius = document.getElementById('radius');
+const dot = document.getElementById('dot');
+const waveDot = document.getElementById('waveDot');
+const wave = document.getElementById('wave');
+const connector = document.getElementById('connector');
+const ampLine = document.getElementById('ampLine');
+const ampArrow = document.getElementById('ampArrow');
+const periodStart = document.getElementById('periodStart');
+const periodEnd = document.getElementById('periodEnd');
+const periodArrow = document.getElementById('periodArrow');
+const periodLabel = document.getElementById('periodLabel');
+const playBtn = document.getElementById('playBtn');
+const soundBtn = document.getElementById('soundBtn');
+const ampSlider = document.getElementById('ampSlider');
+const periodSlider = document.getElementById('periodSlider');
+const phaseSlider = document.getElementById('phaseSlider');
+const ampVal = document.getElementById('ampVal');
+const periodVal = document.getElementById('periodVal');
+const phaseVal = document.getElementById('phaseVal');
+
+const cx = 130, cy = 170;      // circle center
+const waveX0 = 250, waveX1 = 740;
+const SEC_PER_PX = 0.001;      // 1px = 1 ms
+let t = 0;                     // animation phase (radians)
+let playing = true;
+
+// ---- audio ----
+let audioCtx = null, osc = null, gainNode = null, soundOn = false;
+
+function mapFrequency(f_hz) {
+  // f_hz here is the illustrative period-based value (roughly 4–17 Hz).
+  // Map it to an audible range so pitch clearly rises with frequency.
+  // linear map: 4 Hz -> 200 Hz, 17 Hz -> 900 Hz
+  return 200 + (f_hz - 4) * (700 / 13);
+}
+
+function startSound() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    osc = audioCtx.createOscillator();
+    gainNode = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    gainNode.gain.value = 0;
+    osc.start();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  soundOn = true;
+  updateAudio();
+}
+
+function stopSound() {
+  soundOn = false;
+  if (gainNode) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.02);
+}
+
+function updateAudio() {
+  if (!soundOn || !audioCtx) return;
+  const A = +ampSlider.value;
+  const period = +periodSlider.value;
+  const T_ms = period * SEC_PER_PX * 1000;
+  const f_hz = 1000 / T_ms;
+  const freq = mapFrequency(f_hz);
+  const vol = (A / 100) * 0.25;   // amplitude -> loudness
+  osc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.03);
+  gainNode.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.03);
+}
+
+soundBtn.onclick = () => {
+  if (soundOn) {
+    stopSound();
+    soundBtn.textContent = '🔇 音を鳴らす';
+    soundBtn.classList.add('off');
+  } else {
+    startSound();
+    soundBtn.textContent = '🔊 音 オン';
+    soundBtn.classList.remove('off');
+  }
+};
+
+function draw() {
+  const A = +ampSlider.value;                 // amplitude px (also circle radius)
+  const period = +periodSlider.value;
+  const phase = +phaseSlider.value * Math.PI / 180;
+
+  // circle radius now follows amplitude
+  mainCircle.setAttribute('r', A);
+
+  const T_ms = period * SEC_PER_PX * 1000;
+  const f_hz = 1000 / T_ms;
+  ampVal.textContent = '大きさ ' + Math.round(A/100*100) + '%';
+  periodVal.textContent = 'T ≈ ' + T_ms.toFixed(0) + ' ms  ( f ≈ ' + f_hz.toFixed(1) + ' Hz )';
+  phaseVal.textContent = phaseSlider.value + '°';
+
+  const k = 2 * Math.PI / period;
+  const ang = t + phase;
+  const dotY = cy - A * Math.sin(ang);
+  const dotX = cx + A * Math.cos(ang);      // radius = A now
+
+  radius.setAttribute('x2', dotX);
+  radius.setAttribute('y2', dotY);
+  dot.setAttribute('cx', dotX);
+  dot.setAttribute('cy', dotY);
+
+  ampLine.setAttribute('x1', dotX);
+  ampLine.setAttribute('y1', cy);
+  ampLine.setAttribute('x2', dotX);
+  ampLine.setAttribute('y2', dotY);
+
+  let d = '';
+  for (let x = waveX0; x <= waveX1; x += 2) {
+    const yy = cy - A * Math.sin(k * (x - waveX0) + t + phase);
+    d += (x === waveX0 ? 'M' : 'L') + x + ' ' + yy.toFixed(1) + ' ';
+  }
+  wave.setAttribute('d', d);
+
+  const wy = cy - A * Math.sin(t + phase);
+  waveDot.setAttribute('cx', waveX0);
+  waveDot.setAttribute('cy', wy);
+
+  connector.setAttribute('x1', dotX);
+  connector.setAttribute('y1', dotY);
+  connector.setAttribute('x2', waveX0);
+  connector.setAttribute('y2', wy);
+
+  ampArrow.setAttribute('y2', cy - A);
+
+  const pEnd = waveX0 + period;
+  periodStart.setAttribute('x1', waveX0); periodStart.setAttribute('x2', waveX0);
+  periodEnd.setAttribute('x1', pEnd); periodEnd.setAttribute('x2', pEnd);
+  periodArrow.setAttribute('x1', waveX0); periodArrow.setAttribute('x2', pEnd);
+  periodLabel.setAttribute('x', (waveX0 + pEnd) / 2);
+}
+
+function loop() {
+  if (playing) {
+    const period = +periodSlider.value;
+    t += 2 * Math.PI / period * 2;
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+playBtn.onclick = () => {
+  playing = !playing;
+  playBtn.textContent = playing ? '停止' : '再生';
+};
+[ampSlider, periodSlider, phaseSlider].forEach(s =>
+  s.addEventListener('input', () => { draw(); updateAudio(); })
+);
+loop();
+</script>
+</body>
+</html>

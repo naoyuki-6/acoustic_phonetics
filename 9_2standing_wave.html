@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>定在波のなりたち</title>
+<style>
+  :root{
+    --bg:#f4f1ea; --panel:#ffffff; --ink:#2b2b2b; --sub:#6b6b6b;
+    --incident:#c0392b; --reflected:#2980b9; --sum:#8e44ad;
+    --node:#e67e22; --anti:#27ae60; --grid:#e5e0d5;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;
+    background:var(--bg);color:var(--ink);padding:20px;line-height:1.6;}
+  .wrap{max-width:900px;margin:0 auto;}
+  h1{font-size:22px;margin:0 0 4px;}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 16px;}
+  .stage{background:var(--panel);border-radius:12px;padding:8px 8px 4px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.06);margin-bottom:10px;}
+  .stage + .stage{margin-top:10px;}
+  .stage h2{font-size:14px;margin:8px 0 0 12px;display:flex;align-items:center;gap:8px;}
+  .sw{width:13px;height:13px;border-radius:3px;display:inline-block;}
+  svg{display:block;width:100%;height:auto;}
+  .panel-sum{border:2px solid #efe8db;}
+  .controls{background:var(--panel);border-radius:12px;padding:16px 18px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.06);margin:14px 0;}
+  .btnrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  button{font-family:inherit;font-size:14px;padding:8px 16px;border-radius:8px;
+    border:1px solid #d8d3c8;background:#fff;color:var(--ink);cursor:pointer;transition:.15s;}
+  button:hover{background:#f0ece2;}
+  button.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .row{display:flex;align-items:center;gap:12px;margin-top:6px;}
+  .row label{font-size:13px;color:var(--sub);min-width:64px;}
+  input[type=range]{flex:1;accent-color:var(--sum);}
+  .val{font-variant-numeric:tabular-nums;font-weight:700;min-width:56px;text-align:right;}
+  .toggles{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-top:10px;}
+  .toggles label{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--sub);}
+  .note{background:#fff8ef;border-left:4px solid var(--node);padding:12px 16px;
+    border-radius:4px;font-size:13px;color:#7a5c33;margin-top:14px;}
+  .note b{color:#c0392b;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>進行波 ＋ 反射波 → 定在波</h1>
+  <p class="lead">右へ進む波（進行波）と、左へ戻る波（反射波）が重なると、どこにも動かない波ができる。下段がその合成。</p>
+
+  <div class="stage">
+    <h2><span class="sw" style="background:var(--incident)"></span>進行波（右へ →）&nbsp;&nbsp;<span class="sw" style="background:var(--reflected)"></span>反射波（← 左へ）</h2>
+    <svg id="top" viewBox="0 0 820 190" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+
+  <div class="stage panel-sum">
+    <h2><span class="sw" style="background:var(--sum)"></span>合成波（2つを足したもの）</h2>
+    <svg id="bot" viewBox="0 0 820 230" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+
+  <div class="controls">
+    <div class="btnrow">
+      <button id="play" class="on">⏸ 一時停止</button>
+      <button id="step">コマ送り</button>
+      <button id="reset">最初から</button>
+    </div>
+    <div class="row">
+      <label>速さ</label>
+      <input type="range" id="speed" min="0" max="100" value="45">
+      <div class="val"><span id="speedVal">45</span>%</div>
+    </div>
+    <div class="toggles">
+      <label><input type="checkbox" id="tEnv" checked> 波形の「入れ物」（包絡線）を表示</label>
+      <label><input type="checkbox" id="tMark"> 動かない場所・大きく揺れる場所に印</label>
+    </div>
+  </div>
+
+  <div class="note" id="note">
+    2つの波が同じ振幅・同じ波長で逆向きに進むと、合成波は<b>左右に移動しなくなる</b>。
+    これが<b>定在波</b>。ところどころに全く揺れない点ができ、その間で大きく揺れる。
+    （この「揺れない点」を節、「大きく揺れる点」を腹という。）
+  </div>
+</div>
+
+<script>
+const topSvg = document.getElementById('top');
+const botSvg = document.getElementById('bot');
+const NS="http://www.w3.org/2000/svg";
+const TW=820, TH=190, BH=230;
+const ML=20, MR=20;
+const W = TW-ML-MR;
+const yTop = TH/2 + 15, yBot = BH/2 + 20;  // nudge down to leave headroom for figures above crests
+const AMP=38;                 // per-wave amplitude (top)
+const k = 2*Math.PI/205;      // wavelength ~205px -> 4 half-waves across
+const omega = 1;              // base angular speed (scaled by speed slider)
+
+let t=0, playing=true, raf=null, last=null;
+
+const ui={
+  play:document.getElementById('play'),
+  step:document.getElementById('step'),
+  reset:document.getElementById('reset'),
+  speed:document.getElementById('speed'),
+  speedVal:document.getElementById('speedVal'),
+  tEnv:document.getElementById('tEnv'),
+  tMark:document.getElementById('tMark'),
+};
+
+function el(tag,a){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function clear(svg){while(svg.firstChild)svg.removeChild(svg.firstChild);}
+
+// draw a small stick figure at (cx,cy), facing 'right' | 'left' | 'front'
+function person(svg,cx,cy,facing,color){
+  const g=el('g',{transform:`translate(${cx.toFixed(1)},${cy.toFixed(1)})`});
+  const c=color||'#333';
+  // stand on the point: figure sits above (cy is the feet point)
+  // head
+  g.appendChild(el('circle',{cx:0,cy:-20,r:5,fill:c}));
+  // body
+  g.appendChild(el('line',{x1:0,y1:-15,x2:0,y2:-4,stroke:c,'stroke-width':2}));
+  // legs
+  g.appendChild(el('line',{x1:0,y1:-4,x2:-3,y2:2,stroke:c,'stroke-width':2}));
+  g.appendChild(el('line',{x1:0,y1:-4,x2:3,y2:2,stroke:c,'stroke-width':2}));
+  if(facing==='right'){
+    // both arms pointing right (direction of travel)
+    g.appendChild(el('line',{x1:0,y1:-12,x2:8,y2:-14,stroke:c,'stroke-width':2}));
+    g.appendChild(el('line',{x1:0,y1:-12,x2:7,y2:-9,stroke:c,'stroke-width':2}));
+    // little arrow
+    g.appendChild(el('path',{d:'M8 -14 l4 0 l-2 -2 M12 -14 l-2 2',stroke:c,'stroke-width':1.5,fill:'none'}));
+  }else if(facing==='left'){
+    g.appendChild(el('line',{x1:0,y1:-12,x2:-8,y2:-14,stroke:c,'stroke-width':2}));
+    g.appendChild(el('line',{x1:0,y1:-12,x2:-7,y2:-9,stroke:c,'stroke-width':2}));
+    g.appendChild(el('path',{d:'M-8 -14 l-4 0 l2 -2 M-12 -14 l2 2',stroke:c,'stroke-width':1.5,fill:'none'}));
+  }else{
+    // front: arms out to both sides
+    g.appendChild(el('line',{x1:0,y1:-12,x2:-6,y2:-10,stroke:c,'stroke-width':2}));
+    g.appendChild(el('line',{x1:0,y1:-12,x2:6,y2:-10,stroke:c,'stroke-width':2}));
+    // two eyes to signal "facing us"
+    g.appendChild(el('circle',{cx:-2,cy:-21,r:1,fill:'#fff'}));
+    g.appendChild(el('circle',{cx:2,cy:-21,r:1,fill:'#fff'}));
+  }
+  svg.appendChild(g);
+}
+
+function baseline(svg,y){
+  svg.appendChild(el('line',{x1:ML,y1:y,x2:ML+W,y2:y,stroke:'#ccc','stroke-width':1}));
+}
+
+// incident: sin(kx - wt) ; reflected: sin(kx + wt)  -> sum = 2 sin kx cos wt
+function drawTop(){
+  clear(topSvg); baseline(topSvg,yTop);
+  let d1='',d2='';
+  for(let px=0;px<=W;px+=2){
+    const x=px;
+    const yi = yTop - AMP*Math.sin(k*x - omega*t);
+    const yr = yTop - AMP*Math.sin(k*x + omega*t);
+    d1+=(px===0?'M':'L')+(ML+px).toFixed(1)+' '+yi.toFixed(1)+' ';
+    d2+=(px===0?'M':'L')+(ML+px).toFixed(1)+' '+yr.toFixed(1)+' ';
+  }
+  topSvg.appendChild(el('path',{d:d1,fill:'none',stroke:'var(--incident)','stroke-width':2,opacity:0.9}));
+  topSvg.appendChild(el('path',{d:d2,fill:'none',stroke:'var(--reflected)','stroke-width':2,opacity:0.9}));
+
+  // Riders travel smoothly across the full width and wrap at the edges.
+  // Speed = wave phase speed (omega/k px per unit t). y follows the wave surface at that x.
+  const speedPx = omega/k;
+
+  // reflected rider: moves LEFT. Draw FIRST so it sits BEHIND.
+  let xr = (W*0.5 - speedPx*t) % W;
+  if(xr<0) xr+=W;
+  const yr_c = yTop - AMP*Math.sin(k*xr + omega*t);
+  person(topSvg, ML+xr, yr_c, 'left', '#2980b9');
+
+  // incident rider: moves RIGHT. Draw LAST so it sits IN FRONT.
+  let xi = (W*0.25 + speedPx*t) % W;
+  if(xi<0) xi+=W;
+  const yi_c = yTop - AMP*Math.sin(k*xi - omega*t);
+  person(topSvg, ML+xi, yi_c, 'right', '#c0392b');
+}
+
+function drawBot(){
+  clear(botSvg); baseline(botSvg,yBot);
+  const A=2*AMP;
+  // envelope
+  if(ui.tEnv.checked){
+    let up='',dn='';
+    for(let px=0;px<=W;px+=2){
+      const x=px;
+      const env=Math.abs(A*Math.sin(k*x));
+      up+=(px===0?'M':'L')+(ML+px).toFixed(1)+' '+(yBot-env).toFixed(1)+' ';
+      dn+=(px===0?'M':'L')+(ML+px).toFixed(1)+' '+(yBot+env).toFixed(1)+' ';
+    }
+    botSvg.appendChild(el('path',{d:up,fill:'none',stroke:'#cfc4e0','stroke-width':1.4,'stroke-dasharray':'4 4'}));
+    botSvg.appendChild(el('path',{d:dn,fill:'none',stroke:'#cfc4e0','stroke-width':1.4,'stroke-dasharray':'4 4'}));
+  }
+  // sum wave = 2 sin(kx) cos(wt)
+  let d='';
+  for(let px=0;px<=W;px+=2){
+    const x=px;
+    const y=yBot - A*Math.sin(k*x)*Math.cos(omega*t);
+    d+=(px===0?'M':'L')+(ML+px).toFixed(1)+' '+y.toFixed(1)+' ';
+  }
+  botSvg.appendChild(el('path',{d,fill:'none',stroke:'var(--sum)','stroke-width':2.6}));
+
+  // rider on a standing-wave antinode (sin kx = 1 -> x = quarter period).
+  // x is FIXED; only y changes with cos(wt). => moves up/down, never sideways.
+  const periodB = 2*Math.PI/k;
+  const xa = periodB*0.75;              // an antinode comfortably inside the view
+  const ya = yBot - A*Math.sin(k*xa)*Math.cos(omega*t);
+  // faint vertical guide to emphasize "no sideways motion"
+  botSvg.appendChild(el('line',{x1:ML+xa,y1:yBot-A,x2:ML+xa,y2:yBot+A,
+    stroke:'#d9cfe8','stroke-width':1,'stroke-dasharray':'2 4'}));
+  person(botSvg, ML+xa, ya, 'front', '#8e44ad');
+
+  // markers for nodes (sin kx = 0) and antinodes (|sin kx| = 1)
+  if(ui.tMark.checked){
+    for(let x=0;x<=W;x+=1){
+      const s=Math.sin(k*x);
+      // node
+      if(Math.abs(s)<0.02){
+        botSvg.appendChild(el('circle',{cx:ML+x,cy:yBot,r:4,fill:'var(--node)'}));
+      }
+    }
+    // antinodes at |sin|=1
+    for(let x=0;x<=W;x+=1){
+      const s=Math.sin(k*x);
+      if(Math.abs(s)>0.999){
+        botSvg.appendChild(el('line',{x1:ML+x,y1:yBot-A,x2:ML+x,y2:yBot+A,
+          stroke:'var(--anti)','stroke-width':1,'stroke-dasharray':'2 3',opacity:0.6}));
+      }
+    }
+  }
+}
+
+function frame(ts){
+  if(!last)last=ts;
+  const dt=(ts-last)/1000; last=ts;
+  if(playing){
+    const sp=parseInt(ui.speed.value)/100;
+    t += dt*2.2*sp*Math.PI;   // advance phase
+  }
+  drawTop(); drawBot();
+  raf=requestAnimationFrame(frame);
+}
+
+ui.play.addEventListener('click',()=>{
+  playing=!playing;
+  ui.play.textContent=playing?'⏸ 一時停止':'▶ 再生';
+  ui.play.classList.toggle('on',playing);
+});
+ui.step.addEventListener('click',()=>{
+  playing=false;ui.play.textContent='▶ 再生';ui.play.classList.remove('on');
+  t+=Math.PI/12; drawTop(); drawBot();
+});
+ui.reset.addEventListener('click',()=>{ t=0; drawTop(); drawBot(); });
+ui.speed.addEventListener('input',()=>{ui.speedVal.textContent=ui.speed.value;});
+ui.tEnv.addEventListener('input',drawBot);
+ui.tMark.addEventListener('input',drawBot);
+
+raf=requestAnimationFrame(frame);
+</script>
+</body>
+</html>

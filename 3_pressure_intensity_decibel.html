@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音圧・音の強さ・デシベルの連動</title>
+<style>
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: #fafaf8; color: #2a2a2a; margin: 0; padding: 20px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 8px 0 4px; }
+  .sub { font-size: 13px; color: #777; margin-bottom: 18px; text-align:center; max-width:640px; }
+  .panel { background:#fff; border:1px solid #e5e5e0; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,0.05); padding:24px 28px; width:600px; max-width:92vw; }
+  .sliderrow { margin-bottom: 22px; }
+  .sliderrow label { font-size:13px; color:#555; display:block; margin-bottom:8px; }
+  input[type=range]{ width:100%; }
+  .readouts { display:flex; gap:14px; justify-content:space-between; margin:18px 0 8px; }
+  .card { flex:1; background:#f7f7f4; border-radius:10px; padding:14px 10px; text-align:center; border:1px solid #ececec; }
+  .card .name { font-size:12px; color:#888; margin-bottom:6px; }
+  .card .value { font-size:22px; font-weight:700; color:#2a2a2a; }
+  .card .unit { font-size:12px; color:#999; margin-top:2px; }
+  .card.pressure .value{ color:#2a6fb0; }
+  .card.intensity .value{ color:#c0392b; }
+  .card.db .value{ color:#3a8a5a; }
+  .formula { font-size:12px; color:#777; text-align:center; margin-top:6px; line-height:1.8; }
+  .formula code { background:#f2f2ee; padding:1px 6px; border-radius:4px; color:#444; }
+  .buttons { margin-top:18px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  button { padding:8px 16px; border:none; border-radius:6px; background:#3a8a5a; color:#fff; font-size:13px; cursor:pointer; }
+  button.off{ background:#999; }
+  button.preset{ background:#7a5aa5; }
+  button.preset:hover{ background:#64488a; }
+  .note{ font-size:11px; color:#aaa; margin-top:14px; text-align:center; max-width:600px; }
+  .barwrap{ margin-top:6px; height:10px; background:#eee; border-radius:5px; overflow:hidden; }
+  .bar{ height:100%; width:0%; background:linear-gradient(90deg,#8ec5e6,#3a8a5a); transition:width 0.05s; }
+</style>
+</head>
+<body>
+  <h1>音圧・音の強さ・デシベルの連動</h1>
+  <div class="sub">音圧つまみを動かすと、音の強さ（音圧の2乗）と音圧レベル（dB）が連動して変化します。音も鳴らせます。音圧が10倍になるとdBはいくつ増える？を耳と目で確かめよう。</div>
+
+  <div class="panel">
+    <div class="sliderrow">
+      <label>音圧（基準の音を1としたときの倍率）：<span id="ratioLabel">1</span> 倍</label>
+      <input id="pressure" type="range" min="0" max="100" value="0">
+    </div>
+
+    <div class="readouts">
+      <div class="card pressure">
+        <div class="name">音圧の比</div>
+        <div class="value" id="pVal">1</div>
+        <div class="unit">倍（基準との比）</div>
+      </div>
+      <div class="card intensity">
+        <div class="name">音の強さの比</div>
+        <div class="value" id="iVal">1</div>
+        <div class="unit">倍（＝音圧の2乗）</div>
+      </div>
+      <div class="card db">
+        <div class="name">音圧レベル</div>
+        <div class="value" id="dbVal">0</div>
+        <div class="unit">dB</div>
+      </div>
+    </div>
+
+    <div class="barwrap"><div class="bar" id="bar"></div></div>
+
+    <div class="formula">
+      <code>音の強さ = 音圧²</code>　→　<code>dB = 20 × log(音圧比) = 10 × log(強さ比)</code><br>
+      <span id="calcLine"></span>
+    </div>
+
+    <div class="buttons">
+      <button id="soundBtn" class="off">🔇 音を鳴らす</button>
+      <button class="preset" data-p="1">基準（1倍・0dB）</button>
+      <button class="preset" data-p="10">音圧10倍</button>
+      <button class="preset" data-p="100">音圧100倍</button>
+    </div>
+  </div>
+
+  <div class="note">＊音圧10倍で強さは100倍、dBは20dB増加。音圧100倍で強さは10000倍、40dB増加。20log(音圧)でも10log(強さ)でも同じdBになることを確認できます。音量はdBに合わせて変化します（実際のdB値とは対応しない、あくまで大小の体感用）。</div>
+
+<script>
+const pressure = document.getElementById('pressure');
+const ratioLabel = document.getElementById('ratioLabel');
+const pVal = document.getElementById('pVal');
+const iVal = document.getElementById('iVal');
+const dbVal = document.getElementById('dbVal');
+const bar = document.getElementById('bar');
+const calcLine = document.getElementById('calcLine');
+const soundBtn = document.getElementById('soundBtn');
+
+// slider 0..100 maps to pressure ratio 1..100 (log scale so 10 sits mid-ish)
+function sliderToRatio(s){
+  // exponential: ratio = 10^(s/50)  → s=0→1, s=50→10, s=100→100
+  return Math.pow(10, s/50);
+}
+function ratioToSlider(r){
+  return 50 * Math.log10(r);
+}
+
+function fmt(x){
+  if (x >= 100) return Math.round(x).toString();
+  if (x >= 10) return x.toFixed(1);
+  return x.toFixed(2);
+}
+
+let audioCtx=null, osc=null, gainNode=null, soundOn=false;
+const F0 = 330;
+
+function startSound(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    osc = audioCtx.createOscillator();
+    gainNode = audioCtx.createGain();
+    osc.type='sine'; osc.frequency.value=F0;
+    gainNode.gain.value=0; osc.connect(gainNode); gainNode.connect(audioCtx.destination);
+    osc.start();
+  }
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  soundOn=true; update();
+}
+function stopSound(){ soundOn=false; if(gainNode) gainNode.gain.setTargetAtTime(0,audioCtx.currentTime,0.03); }
+
+soundBtn.onclick=()=>{
+  if(soundOn){ stopSound(); soundBtn.textContent='🔇 音を鳴らす'; soundBtn.classList.add('off'); }
+  else { startSound(); soundBtn.textContent='🔊 音 オン'; soundBtn.classList.remove('off'); }
+};
+
+function update(){
+  const r = sliderToRatio(+pressure.value);      // pressure ratio
+  const intensity = r*r;                          // intensity ratio = pressure^2
+  const db = 20 * Math.log10(r);                  // = 10*log10(intensity)
+
+  ratioLabel.textContent = fmt(r);
+  pVal.textContent = fmt(r);
+  iVal.textContent = fmt(intensity);
+  dbVal.textContent = db.toFixed(1);
+
+  // bar: 0..60 dB → 0..100%
+  bar.style.width = Math.max(0, Math.min(100, db/60*100)) + '%';
+
+  // calc line
+  calcLine.innerHTML = '20 × log(' + fmt(r) + ') = ' + db.toFixed(1) + ' dB'
+      + '　／　10 × log(' + fmt(intensity) + ') = ' + db.toFixed(1) + ' dB';
+
+  // audio: map dB to gain. 0dB→ very soft, 60dB→ loud. Use perceptual-ish.
+  if(soundOn && audioCtx){
+    // gain grows with dB; keep within safe range
+    const g = Math.min(0.6, 0.02 * Math.pow(10, db/40));
+    gainNode.gain.setTargetAtTime(g, audioCtx.currentTime, 0.03);
+  }
+}
+
+pressure.addEventListener('input', update);
+document.querySelectorAll('.preset').forEach(b=>{
+  b.onclick=()=>{ pressure.value = ratioToSlider(+b.dataset.p); update(); };
+});
+update();
+</script>
+</body>
+</html>

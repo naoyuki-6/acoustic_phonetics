@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>様々な音の時間波形とスペクトル</title>
+<style>
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: #fafaf8; color: #2a2a2a; margin: 0; padding: 20px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 8px 0 4px; }
+  .sub { font-size: 13px; color: #777; margin-bottom: 16px; text-align:center; max-width:720px; }
+  #stage { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
+  .buttons { margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  button { padding: 7px 14px; border: none; border-radius: 6px; background: #3a8a5a; color:#fff; font-size:13px; cursor:pointer; }
+  button.off { background:#999; }
+  .note { margin-top:12px; font-size:12px; color:#888; max-width:720px; text-align:center; }
+</style>
+</head>
+<body>
+  <h1>時間波形とスペクトル ― 様々な音の比較</h1>
+  <div class="sub">左＝時間波形（横軸：時間）、右＝スペクトル（横軸：周波数）。同じ音でも「時間で見るか」「周波数で見るか」で姿が変わる。この2つの見方を結ぶのがフーリエ変換（＝スペクトル）。</div>
+
+  <svg id="stage" viewBox="0 0 760 640" width="760" height="640"></svg>
+
+  <div class="buttons">
+    <button id="b_periodic" class="soundbtn">周期音（母音的）</button>
+    <button id="b_white" class="soundbtn">ホワイトノイズ</button>
+    <button id="b_pink" class="soundbtn">ピンクノイズ</button>
+    <button id="b_band" class="soundbtn">バンドノイズ</button>
+    <button id="b_click" class="soundbtn">クリック音</button>
+    <button id="b_stop" style="background:#c0392b">■ 停止</button>
+  </div>
+  <div class="note">各ボタンで対応する音を鳴らせます（クリック音は連打で反復）。板書の「離散スペクトル(線) ⇔ 連続スペクトル」「時間で長い ⇔ 一瞬」の対比を、目と耳で確認できます。</div>
+
+<script>
+const svg = document.getElementById('stage');
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
+
+// layout: 5 rows, each with time-domain (left) and spectrum (right)
+const rows = [
+  {key:'periodic', label:'周期音（母音など）', desc:'倍音が等間隔に並ぶ＝線スペクトル。音の高さが明確。'},
+  {key:'white', label:'ホワイトノイズ', desc:'全周波数を均等に含む＝平らな連続スペクトル。'},
+  {key:'pink', label:'ピンクノイズ', desc:'連続スペクトルだが低い周波数ほど成分が多い（右下がり）。'},
+  {key:'band', label:'バンドノイズ', desc:'ある帯域だけを取り出した連続スペクトル。'},
+  {key:'click', label:'クリック音（インパルス）', desc:'時間で一瞬＝周波数では広く均等に広がる。'},
+];
+
+const rowH = 118, topY = 20, leftX = 30, tdW = 300, gap = 40, spW = 300;
+const tdX = leftX, spX = leftX + tdW + gap;
+
+rows.forEach((r, i) => {
+  const y0 = topY + i*rowH;
+  const cy = y0 + 52;
+  // row label
+  svg.appendChild(el('text',{x:leftX, y:y0+12, 'font-size':13, 'font-weight':600, fill:'#333'}));
+  svg.lastChild.textContent = r.label;
+  svg.appendChild(el('text',{x:leftX, y:y0+28, 'font-size':11, fill:'#999'}));
+  svg.lastChild.textContent = r.desc;
+
+  // time-domain box
+  svg.appendChild(el('rect',{x:tdX, y:y0+34, width:tdW, height:60, fill:'#fcfcfa', stroke:'#eee'}));
+  svg.appendChild(el('line',{x1:tdX, y1:cy+12, x2:tdX+tdW, y2:cy+12, stroke:'#ddd','stroke-width':1}));
+  // spectrum box
+  svg.appendChild(el('rect',{x:spX, y:y0+34, width:spW, height:60, fill:'#fcfcfa', stroke:'#eee'}));
+  svg.appendChild(el('line',{x1:spX, y1:y0+94, x2:spX+spW, y2:y0+94, stroke:'#ddd','stroke-width':1}));
+
+  drawTime(r.key, tdX, cy+12, tdW);
+  drawSpectrum(r.key, spX, y0+94, spW, 56);
+});
+
+// axis captions at bottom
+svg.appendChild(el('text',{x:tdX+tdW/2, y:topY+5*rowH+8, 'font-size':11, fill:'#aaa','text-anchor':'middle'}));
+svg.lastChild.textContent='時間 →';
+svg.appendChild(el('text',{x:spX+spW/2, y:topY+5*rowH+8, 'font-size':11, fill:'#aaa','text-anchor':'middle'}));
+svg.lastChild.textContent='周波数 →';
+
+function drawTime(key, x, mid, w){
+  const col = '#2a6fb0';
+  if (key==='click'){
+    // impulse
+    svg.appendChild(el('line',{x1:x+w*0.5, y1:mid, x2:x+w*0.5, y2:mid-34, stroke:col,'stroke-width':2}));
+    svg.appendChild(el('circle',{cx:x+w*0.5, cy:mid-34, r:2.5, fill:col}));
+    return;
+  }
+  let d='';
+  const N=300;
+  for(let j=0;j<=N;j++){
+    const t=j/N;
+    const px=x+t*w;
+    let v=0;
+    if(key==='periodic'){
+      v = Math.sin(2*Math.PI*4*t)+0.4*Math.sin(2*Math.PI*8*t)+0.25*Math.sin(2*Math.PI*12*t);
+      v/=1.65;
+    } else if(key==='white'){
+      v = (rand(j*1.3)-0.5)*2;
+    } else if(key==='pink'){
+      // smoothed random for low-freq emphasis
+      v = pinkSample(t);
+    } else if(key==='band'){
+      // 中心周波数付近で振動しつつ、振幅がランダムに揺らぐ（帯域制限ノイズ＝うなり）
+      const env = 0.55 + 0.45*Math.sin(2*Math.PI*1.3*t + rand(Math.floor(j/12))*6);
+      v = Math.sin(2*Math.PI*8*t) * env;
+    }
+    const py=mid - v*26;
+    d+=(j===0?'M':'L')+px.toFixed(1)+' '+py.toFixed(1)+' ';
+  }
+  svg.appendChild(el('path',{d:d, fill:'none', stroke:col,'stroke-width':1.4}));
+}
+
+function drawSpectrum(key, x, baseY, w, h){
+  const col='#c0392b';
+  if(key==='periodic'){
+    // line spectrum: discrete harmonics
+    const amps=[1,0.5,0.33,0.22,0.14];
+    amps.forEach((a,k)=>{
+      const px=x + w*(0.12 + k*0.16);
+      svg.appendChild(el('line',{x1:px,y1:baseY,x2:px,y2:baseY-a*h*0.9,stroke:col,'stroke-width':2}));
+      svg.appendChild(el('circle',{cx:px,cy:baseY-a*h*0.9,r:2,fill:col}));
+    });
+    return;
+  }
+  // continuous spectra
+  let d='M'+x+' '+baseY+' ';
+  const N=200;
+  for(let j=0;j<=N;j++){
+    const f=j/N;
+    const px=x+f*w;
+    let v=0;
+    if(key==='white') v=0.72;
+    else if(key==='pink') v=0.85/Math.sqrt(1+f*14); // falling
+    else if(key==='band'){
+      // 帯域を四角く取り出す（肩に軽い傾きをつけた台形）
+      const lo=0.32, hi=0.58, edge=0.03;
+      if(f<lo-edge||f>hi+edge) v=0;
+      else if(f<lo) v=0.78*(f-(lo-edge))/edge;
+      else if(f>hi) v=0.78*((hi+edge)-f)/edge;
+      else v=0.78;
+    }
+    else if(key==='click') v=0.66; // flat broadband
+    const py=baseY - v*h;
+    d+='L'+px.toFixed(1)+' '+py.toFixed(1)+' ';
+  }
+  d+='L'+(x+w)+' '+baseY+' Z';
+  svg.appendChild(el('path',{d:d, fill:col, 'fill-opacity':0.18, stroke:col,'stroke-width':1.4}));
+}
+
+// deterministic pseudo-random for stable drawing
+function rand(seed){ const s=Math.sin(seed*127.1+43.7)*43758.5453; return s-Math.floor(s); }
+function pinkSample(t){
+  let v=0;
+  for(let o=1;o<=4;o++){ v += (1/o)*Math.sin(2*Math.PI*o*3*t + o*1.7); }
+  return v/2.0;
+}
+
+// ---------- audio ----------
+let ctx=null, current=null;
+function ac(){ if(!ctx) ctx=new (window.AudioContext||window.webkitAudioContext)(); if(ctx.state==='suspended') ctx.resume(); return ctx; }
+function stopAll(){ if(current){ try{current.stop();}catch(e){} try{current.disconnect();}catch(e){} current=null; } }
+
+function noiseBuffer(type){
+  const c=ac(); const len=c.sampleRate*2; const buf=c.createBuffer(1,len,c.sampleRate); const d=buf.getChannelData(0);
+  if(type==='white'){ for(let i=0;i<len;i++) d[i]=Math.random()*2-1; }
+  else if(type==='pink'){
+    let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+    for(let i=0;i<len;i++){ const w=Math.random()*2-1;
+      b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759; b2=0.96900*b2+w*0.1538520;
+      b3=0.86650*b3+w*0.3104856; b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+      d[i]=(b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11; b6=w*0.115926; }
+  }
+  return buf;
+}
+function playNoise(type){
+  const c=ac(); stopAll(); const src=c.createBufferSource(); src.buffer=noiseBuffer(type==='band'?'white':type); src.loop=true;
+  const g=c.createGain(); g.gain.value=0.25;
+  if(type==='band'){ const bp=c.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1200; bp.Q.value=6; src.connect(bp); bp.connect(g);}
+  else src.connect(g);
+  g.connect(c.destination); src.start(); current={stop:()=>src.stop(),disconnect:()=>{src.disconnect();g.disconnect();}};
+}
+function playPeriodic(){
+  const c=ac(); stopAll(); const F0=180; const master=c.createGain(); master.gain.value=0.0001; master.connect(c.destination);
+  const amps=[1,0.5,0.33,0.22,0.14]; const oscs=[];
+  amps.forEach((a,k)=>{ const o=c.createOscillator(); const g=c.createGain(); o.type='sine'; o.frequency.value=F0*(k+1); g.gain.value=a*0.16; o.connect(g); g.connect(master); o.start(); oscs.push(o,g); });
+  master.gain.setTargetAtTime(0.9,c.currentTime,0.02);
+  current={stop:()=>oscs.forEach(o=>{try{o.stop&&o.stop();}catch(e){}}),disconnect:()=>{try{master.disconnect();}catch(e){}}};
+}
+function playClick(){
+  const c=ac(); const len=Math.floor(c.sampleRate*0.003); const buf=c.createBuffer(1,len,c.sampleRate); const d=buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(i<3?1:0)*(1-i/len); // sharp impulse
+  const src=c.createBufferSource(); src.buffer=buf; const g=c.createGain(); g.gain.value=0.6; src.connect(g); g.connect(c.destination); src.start();
+}
+
+document.getElementById('b_periodic').onclick=()=>playPeriodic();
+document.getElementById('b_white').onclick=()=>playNoise('white');
+document.getElementById('b_pink').onclick=()=>playNoise('pink');
+document.getElementById('b_band').onclick=()=>playNoise('band');
+document.getElementById('b_click').onclick=()=>playClick();
+document.getElementById('b_stop').onclick=()=>stopAll();
+</script>
+</body>
+</html>

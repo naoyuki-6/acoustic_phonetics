@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>複合音の合成 ― 基本振動と倍音の足し算</title>
+<style>
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: #fafaf8; color: #2a2a2a; margin: 0; padding: 20px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin: 8px 0 4px; }
+  .sub { font-size: 13px; color: #777; margin-bottom: 16px; text-align:center; }
+  #stage { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
+  .panel { margin-top: 16px; display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  .harmonic { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: #555; min-width: 120px; }
+  .harmonic .name { font-weight: 600; margin-bottom: 4px; }
+  .harmonic input[type=range] { width: 110px; }
+  .harmonic .amp { font-size: 11px; color: #888; margin-top: 2px; }
+  .buttons { margin-top: 16px; display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+  button { padding: 8px 16px; border: none; border-radius: 6px; background: #3a6ea5; color: #fff; font-size: 13px; cursor: pointer; }
+  button:hover { background: #2f5a86; }
+  button.sound { background: #3a8a5a; }
+  button.sound.off { background: #999; }
+  button.preset { background: #7a5aa5; }
+  button.preset:hover { background: #64488a; }
+</style>
+</head>
+<body>
+  <h1>複合音の合成 ― 基本振動と倍音の足し算</h1>
+  <div class="sub">各倍音（純音）の振幅をスライダーで変え、それらを足し合わせてできる複合音の波形を観察しよう</div>
+
+  <svg id="stage" viewBox="0 0 780 420" width="780" height="420">
+    <!-- component waves area -->
+    <text x="20" y="24" font-size="12" fill="#777">成分（各倍音の純音）</text>
+    <!-- 4 component lanes -->
+    <g id="components"></g>
+
+    <!-- divider -->
+    <line x1="20" y1="250" x2="760" y2="250" stroke="#ddd" stroke-width="1"/>
+    <text x="20" y="274" font-size="12" fill="#777">合成された複合音（すべての成分の和）</text>
+
+    <!-- sum wave axis -->
+    <line x1="40" y1="345" x2="760" y2="345" stroke="#ccc" stroke-width="1"/>
+    <path id="sumWave" fill="none" stroke="#c0392b" stroke-width="2.5"/>
+  </svg>
+
+  <div class="buttons">
+    <button id="soundBtn" class="sound off">🔇 音を鳴らす</button>
+    <button class="preset" data-preset="saw">のこぎり波風</button>
+    <button class="preset" data-preset="square">矩形波風</button>
+    <button class="preset" data-preset="fundamental">基本振動のみ</button>
+    <button class="preset" data-preset="clear">リセット</button>
+  </div>
+
+  <div class="panel" id="panel"></div>
+
+<script>
+const NH = 4; // number of harmonics
+const colors = ['#2a6fb0', '#e0a030', '#3a8a5a', '#a05aa0'];
+const names = ['基本振動 (f)', '第2倍音 (2f)', '第3倍音 (3f)', '第4倍音 (4f)'];
+// default amplitudes
+let amps = [1.0, 0.0, 0.0, 0.0];
+
+const componentsG = document.getElementById('components');
+const sumWave = document.getElementById('sumWave');
+const panel = document.getElementById('panel');
+
+// layout for component lanes
+const laneX0 = 40, laneX1 = 760, laneH = 52, laneTop = 40;
+const baseF = 2; // cycles across the view for fundamental
+
+// build component paths
+const compPaths = [];
+for (let i = 0; i < NH; i++) {
+  const cy = laneTop + i * laneH + laneH/2;
+  const axis = document.createElementNS('http://www.w3.org/2000/svg','line');
+  axis.setAttribute('x1', laneX0); axis.setAttribute('y1', cy);
+  axis.setAttribute('x2', laneX1); axis.setAttribute('y2', cy);
+  axis.setAttribute('stroke', '#eee'); axis.setAttribute('stroke-width', '1');
+  componentsG.appendChild(axis);
+
+  const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+  label.setAttribute('x', laneX0); label.setAttribute('y', cy - laneH/2 + 4);
+  label.setAttribute('font-size', '11'); label.setAttribute('fill', colors[i]);
+  label.textContent = names[i];
+  componentsG.appendChild(label);
+
+  const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+  p.setAttribute('fill','none'); p.setAttribute('stroke', colors[i]); p.setAttribute('stroke-width','1.8');
+  componentsG.appendChild(p);
+  compPaths.push({path:p, cy:cy});
+}
+
+// build sliders
+for (let i = 0; i < NH; i++) {
+  const div = document.createElement('div');
+  div.className = 'harmonic';
+  div.innerHTML = `
+    <div class="name" style="color:${colors[i]}">${names[i]}</div>
+    <input type="range" min="0" max="100" value="${amps[i]*100}" id="amp${i}">
+    <div class="amp" id="ampVal${i}"></div>`;
+  panel.appendChild(div);
+  document.getElementById('amp'+i).addEventListener('input', (e) => {
+    amps[i] = +e.target.value / 100;
+    draw(); updateAudio();
+  });
+}
+
+const compAmpPx = 18;  // component display amplitude
+const sumAmpScale = 22; // sum display scale
+
+function draw() {
+  // components
+  for (let i = 0; i < NH; i++) {
+    const cy = compPaths[i].cy;
+    const harm = i + 1;
+    let d = '';
+    for (let x = laneX0; x <= laneX1; x += 2) {
+      const phase = (x - laneX0) / (laneX1 - laneX0) * 2*Math.PI * baseF * harm;
+      const y = cy - amps[i] * compAmpPx * Math.sin(phase);
+      d += (x===laneX0?'M':'L') + x + ' ' + y.toFixed(1) + ' ';
+    }
+    compPaths[i].path.setAttribute('d', d);
+    document.getElementById('ampVal'+i).textContent = '振幅 ' + Math.round(amps[i]*100) + '%';
+  }
+  // sum
+  const sumCy = 345;
+  let d = '';
+  for (let x = laneX0; x <= laneX1; x += 2) {
+    let y = 0;
+    for (let i = 0; i < NH; i++) {
+      const harm = i + 1;
+      const phase = (x - laneX0) / (laneX1 - laneX0) * 2*Math.PI * baseF * harm;
+      y += amps[i] * Math.sin(phase);
+    }
+    const py = sumCy - y * sumAmpScale;
+    d += (x===laneX0?'M':'L') + x + ' ' + py.toFixed(1) + ' ';
+  }
+  sumWave.setAttribute('d', d);
+}
+
+// presets
+document.querySelectorAll('.preset').forEach(btn => {
+  btn.onclick = () => {
+    const p = btn.dataset.preset;
+    if (p === 'saw')       amps = [1.0, 0.5, 0.33, 0.25];
+    else if (p === 'square') amps = [1.0, 0.0, 0.33, 0.0];
+    else if (p === 'fundamental') amps = [1.0, 0, 0, 0];
+    else if (p === 'clear') amps = [0, 0, 0, 0];
+    for (let i = 0; i < NH; i++) document.getElementById('amp'+i).value = amps[i]*100;
+    draw(); updateAudio();
+  };
+});
+
+// ---- audio ----
+let audioCtx=null, oscs=[], gains=[], soundOn=false;
+const F0 = 220; // audible fundamental
+const soundBtn = document.getElementById('soundBtn');
+
+function startSound() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    for (let i=0;i<NH;i++){
+      const o=audioCtx.createOscillator();
+      const g=audioCtx.createGain();
+      o.type='sine'; o.frequency.value=F0*(i+1);
+      g.gain.value=0; o.connect(g); g.connect(audioCtx.destination); o.start();
+      oscs.push(o); gains.push(g);
+    }
+  }
+  if (audioCtx.state==='suspended') audioCtx.resume();
+  soundOn=true; updateAudio();
+}
+function stopSound(){ soundOn=false; gains.forEach(g=>g.gain.setTargetAtTime(0,audioCtx.currentTime,0.02)); }
+function updateAudio(){
+  if(!soundOn||!audioCtx) return;
+  for(let i=0;i<NH;i++){
+    gains[i].gain.setTargetAtTime(amps[i]*0.18,audioCtx.currentTime,0.03);
+  }
+}
+soundBtn.onclick=()=>{
+  if(soundOn){ stopSound(); soundBtn.textContent='🔇 音を鳴らす'; soundBtn.classList.add('off'); }
+  else { startSound(); soundBtn.textContent='🔊 音 オン'; soundBtn.classList.remove('off'); }
+};
+
+draw();
+</script>
+</body>
+</html>

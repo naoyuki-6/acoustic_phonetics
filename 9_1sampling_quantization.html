@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>サンプリングと量子化</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --panel: #ffffff;
+    --ink: #2b2b2b;
+    --sub: #6b6b6b;
+    --wave: #c0392b;
+    --sampled: #2c3e50;
+    --step: #2980b9;
+    --grid: #d8d3c8;
+    --accent: #e67e22;
+    --error: #e67e22;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 20px;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    letter-spacing: 0.02em;
+  }
+  .lead { color: var(--sub); font-size: 14px; margin: 0 0 18px; }
+  .stage {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 16px 12px 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    margin-bottom: 18px;
+  }
+  svg { display: block; width: 100%; height: auto; }
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  @media (max-width: 640px){ .controls { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  }
+  .card h2 { font-size: 15px; margin: 0 0 2px; display:flex; align-items:center; gap:8px;}
+  .swatch { width:14px; height:14px; border-radius:3px; display:inline-block; }
+  .card .axis { font-size: 12px; color: var(--sub); margin: 0 0 12px; }
+  .row { display:flex; align-items:center; gap:12px; }
+  input[type=range]{ flex:1; accent-color: var(--accent); }
+  .val {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    min-width: 118px;
+    text-align: right;
+    font-size: 14px;
+  }
+  .val small { font-weight: 400; color: var(--sub); }
+  .toggles { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; font-size:13px;}
+  .toggles label { display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--sub);}
+  .legend { display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:var(--sub); margin-top:4px; padding-left:4px;}
+  .legend span { display:flex; align-items:center; gap:6px; }
+  .note {
+    background: #fff8ef;
+    border-left: 4px solid var(--accent);
+    padding: 12px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #7a5c33;
+  }
+  .note b { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>デジタル化 ＝ サンプリング ＋ 量子化</h1>
+  <p class="lead">連続量(アナログ)を、時間と振幅の両方で刻んで階段状にする。2つのスライダーを動かしてみよう。</p>
+
+  <div class="toggles">
+    <label><input type="checkbox" id="tOrig" checked> 元の波形</label>
+    <label><input type="checkbox" id="tSample" checked> サンプリング点</label>
+    <label><input type="checkbox" id="tStep" checked> 量子化後(階段)</label>
+    <label><input type="checkbox" id="tGrid" checked> 量子化の段階線</label>
+    <label><input type="checkbox" id="tError"> 量子化誤差</label>
+  </div>
+
+  <div class="stage">
+    <svg id="plot" viewBox="0 0 800 340" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--wave)"></span>元の波形（アナログ）</span>
+      <span><span class="swatch" style="background:var(--sampled)"></span>サンプリング点</span>
+      <span><span class="swatch" style="background:var(--step)"></span>量子化後の階段（デジタル）</span>
+      <span><span class="swatch" style="background:var(--error)"></span>量子化誤差</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="card">
+      <h2><span class="swatch" style="background:var(--sampled)"></span>サンプリング（横＝時間）</h2>
+      <p class="axis">どれだけ細かい時間間隔で値を取り出すか</p>
+      <div class="row">
+        <input type="range" id="fs" min="4" max="80" value="16" step="1">
+        <div class="val"><span id="fsVal">16</span> <small>点</small></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2><span class="swatch" style="background:var(--step)"></span>量子化（縦＝振幅）</h2>
+      <p class="axis">振幅を何段階に分けるか　＝　量子化ビット数</p>
+      <div class="row">
+        <input type="range" id="bits" min="1" max="6" value="3" step="1">
+        <div class="val"><span id="bitsVal">3</span><small>bit → </small><span id="levVal">8</span><small>段階</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+const svg = document.getElementById('plot');
+const NS = "http://www.w3.org/2000/svg";
+const W = 800, H = 340;
+const M = {l: 48, r: 20, t: 20, b: 34};
+const plotW = W - M.l - M.r;
+const plotH = H - M.t - M.b;
+
+// signal: sum of two sines to make it visibly non-trivial
+function signal(t){ // t in [0,1] -> amplitude in [-1,1]
+  return 0.7*Math.sin(2*Math.PI*2*t) + 0.3*Math.sin(2*Math.PI*5*t + 0.6);
+}
+const AMP = 1.05; // display range +/-
+
+const ui = {
+  fs: document.getElementById('fs'),
+  bits: document.getElementById('bits'),
+  fsVal: document.getElementById('fsVal'),
+  bitsVal: document.getElementById('bitsVal'),
+  levVal: document.getElementById('levVal'),
+  tOrig: document.getElementById('tOrig'),
+  tSample: document.getElementById('tSample'),
+  tStep: document.getElementById('tStep'),
+  tGrid: document.getElementById('tGrid'),
+  tError: document.getElementById('tError'),
+  note: document.getElementById('note'),
+};
+
+function xPix(t){ return M.l + t*plotW; }
+function yPix(a){ return M.t + (1 - (a+AMP)/(2*AMP))*plotH; }
+
+function el(tag, attrs){
+  const e = document.createElementNS(NS, tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function quantize(a, levels){
+  // map [-AMP, AMP] into `levels` bins, return center value of the bin
+  const norm = (a + AMP) / (2*AMP);        // 0..1
+  let idx = Math.floor(norm * levels);
+  if(idx >= levels) idx = levels - 1;
+  if(idx < 0) idx = 0;
+  const center = (idx + 0.5)/levels;        // 0..1
+  return center*2*AMP - AMP;
+}
+
+function draw(){
+  const nS = parseInt(ui.fs.value);
+  const bits = parseInt(ui.bits.value);
+  const levels = Math.pow(2, bits);
+  ui.fsVal.textContent = nS;
+  ui.bitsVal.textContent = bits;
+  ui.levVal.textContent = levels;
+
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+  // axes
+  svg.appendChild(el('line',{x1:M.l,y1:yPix(0),x2:M.l+plotW,y2:yPix(0),stroke:'#bbb','stroke-width':1}));
+  svg.appendChild(el('line',{x1:M.l,y1:M.t,x2:M.l,y2:M.t+plotH,stroke:'#bbb','stroke-width':1}));
+  const xl = el('text',{x:M.l+plotW,y:M.t+plotH+24,'text-anchor':'end','font-size':12,fill:'#888'});
+  xl.textContent='時間 →'; svg.appendChild(xl);
+  const yl = el('text',{x:M.l-8,y:M.t+10,'text-anchor':'end','font-size':12,fill:'#888'});
+  yl.textContent='振幅'; svg.appendChild(yl);
+
+  // quantization level lines
+  if(ui.tGrid.checked){
+    for(let i=0;i<=levels;i++){
+      const a = i/levels*2*AMP - AMP;
+      svg.appendChild(el('line',{x1:M.l,y1:yPix(a),x2:M.l+plotW,y2:yPix(a),
+        stroke:'#2980b9','stroke-width':0.6,'stroke-dasharray':'3 4',opacity:0.4}));
+    }
+  }
+
+  // original continuous wave
+  if(ui.tOrig.checked){
+    let d='';
+    const N=400;
+    for(let i=0;i<=N;i++){
+      const t=i/N;
+      d += (i===0?'M':'L')+xPix(t).toFixed(2)+' '+yPix(signal(t)).toFixed(2)+' ';
+    }
+    svg.appendChild(el('path',{d,fill:'none',stroke:'var(--wave)','stroke-width':2.2}));
+  }
+
+  // sample points and quantized staircase
+  const samples=[];
+  for(let i=0;i<nS;i++){
+    const t=(i+0.5)/nS;
+    samples.push({t, a:signal(t), q:quantize(signal(t),levels)});
+  }
+
+  // staircase (sample-and-hold of the quantized value)
+  if(ui.tStep.checked){
+    let d='';
+    for(let i=0;i<nS;i++){
+      const t0=i/nS, t1=(i+1)/nS;
+      const y=yPix(samples[i].q);
+      d += (i===0?'M':'L')+xPix(t0).toFixed(2)+' '+y.toFixed(2)+' ';
+      d += 'L'+xPix(t1).toFixed(2)+' '+y.toFixed(2)+' ';
+    }
+    svg.appendChild(el('path',{d,fill:'none',stroke:'var(--step)','stroke-width':2}));
+  }
+
+  // quantization error (vertical bars from true sample to quantized value)
+  if(ui.tError.checked){
+    for(const s of samples){
+      svg.appendChild(el('line',{x1:xPix(s.t),y1:yPix(s.a),x2:xPix(s.t),y2:yPix(s.q),
+        stroke:'var(--error)','stroke-width':2.5,opacity:0.75}));
+    }
+  }
+
+  // sample dots
+  if(ui.tSample.checked){
+    for(const s of samples){
+      svg.appendChild(el('circle',{cx:xPix(s.t),cy:yPix(s.a),r:3.2,fill:'var(--sampled)'}));
+    }
+  }
+
+  // note text
+  const dr = (bits*6.02).toFixed(0);
+  ui.note.innerHTML =
+    `いま <b>${nS}点/周期区間</b> でサンプリングし、振幅を <b>${bits}ビット = ${levels}段階</b> に量子化しています。`+
+    `　サンプリングを粗くすると波の形が読めなくなり（時間の情報が落ちる）、`+
+    `量子化を粗くすると階段が大きくカクつきます（そのカクつき分が<b>量子化誤差＝ノイズ</b>）。`+
+    `　ビット数を1つ増やすごとに段階は2倍細かくなり、ダイナミックレンジは約6dB広がります（${bits}bit ≒ ${dr}dB）。`;
+}
+
+['fs','bits','tOrig','tSample','tStep','tGrid','tError'].forEach(id=>{
+  document.getElementById(id).addEventListener('input',draw);
+});
+draw();
+</script>
+</body>
+</html>

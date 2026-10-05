@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>フーリエ級数からフーリエ変換へ ― 周期を広げると連続スペクトルになる</title>
+<style>
+  :root {
+    --ink: #23201b;
+    --paper: #f7f4ee;
+    --card: #ffffff;
+    --line: #e3ddd2;
+    --muted: #8a8272;
+    --bar: #2f5d7c;      /* 線スペクトル */
+    --env: #c98a2b;      /* 包絡線 */
+    --axis: #6a6252;
+    --accent: #2f5d7c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", system-ui, sans-serif;
+    background: var(--paper); color: var(--ink);
+    margin: 0; padding: 24px 16px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; text-align:center; }
+  .sub { font-size: 13px; color: var(--muted); margin-bottom: 16px; text-align: center; max-width: 640px; line-height: 1.6; }
+  #stage {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: 0 4px 18px rgba(40,34,24,0.06);
+    max-width: 100%; height: auto;
+  }
+  .axis-label { font-size: 12px; fill: var(--muted); }
+  .tick { font-size: 11px; fill: #9a917e; }
+  .plot-title { font-size: 13px; font-weight: 700; fill: var(--ink); }
+  .controls { margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; max-width: 560px; }
+  .slider-row { display: flex; align-items: center; gap: 14px; width: 100%; }
+  .slider-row label { font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .slider-row input[type=range] { flex: 1; accent-color: var(--accent); }
+  .readout { font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; min-width: 180px; text-align: right; font-weight:600; }
+  .buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .toggle-row { font-size: 13px; color: var(--ink); display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; }
+  .toggle-row input { accent-color: var(--env); width:16px; height:16px; }
+  button {
+    padding: 8px 16px; border: 1px solid #e0d9ca; border-radius: 7px;
+    font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+    background: #efeadf; color: #55503f; transition: background .15s;
+  }
+  button:hover { background: #e6dfd0; }
+  button.play { background: var(--accent); color: #fff; border-color: transparent; }
+  button.play:hover { filter: brightness(1.06); }
+  .snap { font-size:12px; }
+  .caption { margin-top: 16px; font-size: 12.5px; color: var(--muted); max-width: 660px; text-align: center; line-height: 1.8; }
+  .caption b { color: var(--ink); }
+  .legend { display:flex; gap:18px; justify-content:center; margin-top:10px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .sw { width:22px; height:0; border-top-width:2px; border-top-style:solid; display:inline-block; }
+</style>
+</head>
+<body>
+  <h1>フーリエ級数からフーリエ変換へ</h1>
+  <div class="sub">パルスの「幅」は固定したまま、繰り返す<b>周期</b>だけを広げていく。周期が長いほど倍音の間隔（＝基本周波数 f₀ = 1/周期）が狭くなり、線が密集する。包絡線（オレンジ）は動かず、線だけ詰まって、やがて連続スペクトルになる。</div>
+
+  <svg id="stage" viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg">
+    <text id="plotTitle" class="plot-title" x="60" y="30"></text>
+
+    <!-- plot frame -->
+    <rect id="frame" x="70" y="44" width="600" height="220" fill="none" stroke="var(--axis)" stroke-width="1.2"/>
+
+    <!-- y axis label -->
+    <text class="axis-label" x="30" y="160" transform="rotate(-90 30 160)" text-anchor="middle">スペクトル</text>
+
+    <!-- envelope + bars -->
+    <path id="envelope" fill="none" stroke="var(--env)" stroke-width="2" opacity="0.9"/>
+    <g id="bars"></g>
+
+    <!-- x ticks -->
+    <g id="xticks"></g>
+    <text class="axis-label" x="370" y="330" text-anchor="middle">周波数 (Hz)</text>
+  </svg>
+
+  <div class="legend">
+    <span><span class="sw" style="border-color:var(--bar)"></span> 線スペクトル（倍音）</span>
+    <span><span class="sw" style="border-color:var(--env)"></span> 包絡線（パルス1個分の形）</span>
+  </div>
+
+  <div class="controls">
+    <div class="slider-row">
+      <label>周期</label>
+      <input type="range" id="period" min="2" max="20" step="0.5" value="5">
+      <span class="readout" id="readout"></span>
+    </div>
+    <div class="buttons">
+      <button class="snap" data-t="5">0.005秒</button>
+      <button class="snap" data-t="12.5">0.0125秒</button>
+      <button class="snap" data-t="20">0.02秒</button>
+      <button class="play" id="playBtn">▶ 周期を広げる</button>
+    </div>
+    <label class="toggle-row">
+      <input type="checkbox" id="envToggle"> 頂点を通る線（包絡線）を表示
+    </label>
+  </div>
+
+  <div class="caption">
+    周期 0.005秒 → f₀ = 200Hz（200Hzごとに線）。周期 0.0125秒 → f₀ = 80Hz（線が密に）。
+    周期を広げるほど倍音の間隔 f₀（= 1/周期）が狭くなり、<b>線がどんどん増えて密集</b>していく。
+    この先、周期をさらに伸ばしていった果て（単一パルス＝非周期音）が<b>連続スペクトル</b>。
+    各倍音の先端は、周期によらず<b>同じ包絡線</b>（下のチェックで表示）の上に並ぶ。
+  </div>
+
+<script>
+// ----- plot geometry -----
+const PX0 = 70, PX1 = 670, PY0 = 44, PY1 = 264; // frame
+const FMAX = 3000; // Hz across x
+const bars = document.getElementById('bars');
+const envelope = document.getElementById('envelope');
+const xticks = document.getElementById('xticks');
+const plotTitle = document.getElementById('plotTitle');
+const readout = document.getElementById('readout');
+const periodSlider = document.getElementById('period');
+
+// x ticks
+let tk = '';
+for (let f = 0; f <= 3000; f += 500) {
+  const x = PX0 + (f/FMAX)*(PX1-PX0);
+  tk += `<line x1="${x}" y1="${PY1}" x2="${x}" y2="${PY1+5}" stroke="#9a917e" stroke-width="1"/>`;
+  tk += `<text class="tick" x="${x}" y="${PY1+18}" text-anchor="middle">${f}</text>`;
+}
+xticks.innerHTML = tk;
+
+// envelope: |sinc| with first null at ~2200 Hz (fixed pulse width => fixed envelope)
+const NULL_HZ = 2200;
+function envValue(fHz) {
+  const x = Math.PI * fHz / NULL_HZ; // zero at f = NULL_HZ
+  if (x === 0) return 1;
+  const s = Math.sin(x)/x;
+  return Math.abs(s);
+}
+function yFor(val) { return PY1 - val * (PY1 - PY0) * 0.92; }
+
+function drawEnvelope() {
+  let d = '';
+  for (let i = 0; i <= 300; i++) {
+    const f = i/300 * FMAX;
+    const x = PX0 + (f/FMAX)*(PX1-PX0);
+    const y = yFor(envValue(f));
+    d += (i===0?'M':'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+  }
+  envelope.setAttribute('d', d);
+}
+
+// period slider value = period in ms (2..60). f0 = 1000/period_ms  (Hz)
+function draw() {
+  const Tms = +periodSlider.value;
+  const Tsec = Tms/1000;
+  const f0 = 1000 / Tms; // Hz spacing between harmonics
+
+  // bars at n*f0
+  let html = '';
+  let count = 0;
+  for (let f = f0; f <= FMAX + 1; f += f0) {
+    const x = PX0 + (f/FMAX)*(PX1-PX0);
+    const y = yFor(envValue(f));
+    html += `<line x1="${x.toFixed(2)}" y1="${PY1}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}" stroke="var(--bar)" stroke-width="1.4"/>`;
+    count++;
+  }
+  bars.innerHTML = html;
+
+  // envelope shown only when the user ticks the box
+  envelope.setAttribute('opacity', document.getElementById('envToggle').checked ? '1' : '0');
+
+  // titles / readout
+  plotTitle.textContent = '周期 = ' + Tsec.toFixed(4).replace(/0+$/,'').replace(/\.$/,'.0') + ' 秒';
+  readout.textContent = 'f₀ = ' + Math.round(f0) + ' Hz ／ 線 ' + count + ' 本';
+}
+
+periodSlider.addEventListener('input', draw);
+document.getElementById('envToggle').addEventListener('change', draw);
+
+document.querySelectorAll('.snap').forEach(b => {
+  b.onclick = () => { periodSlider.value = b.dataset.t; draw(); };
+});
+
+let anim = null;
+document.getElementById('playBtn').onclick = () => {
+  if (anim) { cancelAnimationFrame(anim); anim = null; }
+  let v = Math.max(5, +periodSlider.value);
+  if (v >= 20) v = 5; // restart from short period if already at end
+  periodSlider.value = v;
+  const step = () => {
+    v += 0.14;
+    if (v >= 20) { v = 20; periodSlider.value = v; draw(); anim = null; return; }
+    periodSlider.value = v; draw();
+    anim = requestAnimationFrame(step);
+  };
+  step();
+};
+
+drawEnvelope();
+periodSlider.value = 5;
+draw();
+</script>
+</body>
+</html>
